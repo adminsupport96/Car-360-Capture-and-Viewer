@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sensor test</title>
+    <style>
+      body {
+        font-family: ui-monospace, monospace;
+        background: #0b0d10;
+        color: #f5f7f8;
+        padding: 20px;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      h2 {
+        font-size: 14px;
+        color: #2de1c2;
+        margin: 20px 0 4px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #1d2126;
+        padding: 6px 0;
+        gap: 12px;
+      }
+      .row span:last-child {
+        text-align: right;
+        word-break: break-word;
+      }
+      .ok {
+        color: #2de1c2;
+      }
+      .bad {
+        color: #ff5c5c;
+      }
+      button {
+        margin-top: 16px;
+        padding: 12px 20px;
+        font-size: 15px;
+        border-radius: 10px;
+        border: none;
+        background: #2de1c2;
+        color: #04211c;
+        font-weight: bold;
+      }
+      button:disabled {
+        opacity: 0.4;
+      }
+      #log {
+        margin-top: 16px;
+        white-space: pre-wrap;
+        font-size: 13px;
+        color: #8a9198;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Raw sensor diagnostic</h1>
+
+    <div class="row">
+      <span>isSecureContext</span>
+      <span id="secure"></span>
+    </div>
+    <div class="row">
+      <span>'DeviceOrientationEvent' in window</span>
+      <span id="hasDOE"></span>
+    </div>
+    <div class="row">
+      <span>DeviceOrientationEvent.requestPermission exists</span>
+      <span id="hasReqPerm"></span>
+    </div>
+    <div class="row">
+      <span>'ondeviceorientationabsolute' in window</span>
+      <span id="hasAbsolute"></span>
+    </div>
+
+    <h2>'deviceorientation' (relative)</h2>
+    <div class="row">
+      <span>events received</span>
+      <span id="relCount">0</span>
+    </div>
+    <div class="row">
+      <span>last alpha / beta / gamma</span>
+      <span id="relValues">—</span>
+    </div>
+
+    <h2>'deviceorientationabsolute'</h2>
+    <div class="row">
+      <span>events received</span>
+      <span id="absCount">0</span>
+    </div>
+    <div class="row">
+      <span>last alpha / beta / gamma</span>
+      <span id="absValues">—</span>
+    </div>
+
+    <button id="enableBtn">Request permission / start</button>
+
+    <div id="log"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const log = (msg) => {
+        $("log").textContent += msg + "\n";
+      };
+
+      $("secure").textContent = window.isSecureContext;
+      $("secure").className = window.isSecureContext ? "ok" : "bad";
+
+      const hasDOE = "DeviceOrientationEvent" in window;
+      $("hasDOE").textContent = hasDOE;
+      $("hasDOE").className = hasDOE ? "ok" : "bad";
+
+      const hasReqPerm =
+        hasDOE && typeof window.DeviceOrientationEvent.requestPermission === "function";
+      $("hasReqPerm").textContent = hasReqPerm;
+
+      $("hasAbsolute").textContent = "ondeviceorientationabsolute" in window;
+
+      let relCount = 0;
+      let absCount = 0;
+      let attached = false;
+
+      function relHandler(e) {
+        relCount++;
+        $("relCount").textContent = relCount;
+        $("relValues").textContent = `${e.alpha} / ${e.beta} / ${e.gamma}`;
+      }
+
+      function absHandler(e) {
+        absCount++;
+        $("absCount").textContent = absCount;
+        $("absValues").textContent = `${e.alpha} / ${e.beta} / ${e.gamma}`;
+      }
+
+      function attach() {
+        if (attached) {
+          log("Already attached — rotate the phone, no need to tap again.");
+          return;
+        }
+        attached = true;
+        window.addEventListener("deviceorientation", relHandler);
+        window.addEventListener("deviceorientationabsolute", absHandler);
+        log("Attached both listeners. Rotate the phone slowly through a full turn.");
+        setTimeout(() => {
+          if (relCount === 0 && absCount === 0) {
+            log("No events received at all after 5s from either event type.");
+          } else {
+            log(
+              `After 5s — relative: ${relCount} events, absolute: ${absCount} events. Whichever has real (non-null) values is the one the app should use.`,
+            );
+          }
+        }, 5000);
+      }
+
+      $("enableBtn").addEventListener("click", async () => {
+        if (hasReqPerm) {
+          try {
+            const result = await window.DeviceOrientationEvent.requestPermission();
+            log("requestPermission() resolved: " + result);
+            if (result === "granted") attach();
+          } catch (err) {
+            log("requestPermission() threw: " + err);
+          }
+        } else {
+          log("No requestPermission gate on this browser — attaching directly.");
+          attach();
+        }
+      });
+    </script>
+  </body>
+</html>
