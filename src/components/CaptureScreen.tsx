@@ -3,23 +3,20 @@ import { MODES, getHintForProgress } from "../modes";
 import type { Frame, Mode } from "../types";
 import { useCamera } from "../hooks/useCamera";
 import { useFullscreen } from "../hooks/useFullscreen";
-import { useIsPortrait } from "../hooks/useIsPortrait";
 import {
   useDeviceOrientation,
   type Tilt,
 } from "../hooks/useDeviceOrientation";
 import { drawToDataUrl } from "../lib/imageCapture";
 import {
-  ALIGN_TOLERANCE_DEG,
-  HEADING_SMOOTHING_ALPHA,
   LEVEL_TOLERANCE_DEG,
-  normalizeAngle,
+  TILT_SMOOTHING_ALPHA,
   shortestDelta,
   smoothAngle,
 } from "../lib/heading";
 import { ExteriorGuide } from "./guides/ExteriorGuide";
 import { InteriorGuide } from "./guides/InteriorGuide";
-import { CompassGuide } from "./guides/CompassGuide";
+import { StepRing } from "./guides/StepRing";
 import { AxisGauge } from "./guides/AxisGauge";
 
 const RING_LEN = 289;
@@ -28,11 +25,7 @@ interface CaptureScreenProps {
   mode: Mode;
   frames: Frame[];
   targetCount: number;
-  onCapture: (
-    src: string,
-    heading: number | null,
-    tilt: Tilt | null,
-  ) => void;
+  onCapture: (src: string, tilt: Tilt | null) => void;
   onUndo: () => void;
   onClose: () => void;
   onDone: () => void;
@@ -53,37 +46,22 @@ export function CaptureScreen({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbstripRef = useRef<HTMLDivElement>(null);
   const { showFallback, resolution } = useCamera(true, videoRef);
-  const isPortrait = useIsPortrait();
   const {
     supported: fullscreenSupported,
     isFullscreen,
     toggle: toggleFullscreen,
   } = useFullscreen();
   const {
-    heading,
     tilt,
-    supported: gyroSupported,
+    supported: tiltSupported,
     needsPermission,
     permission,
     requestPermission,
   } = useDeviceOrientation(true);
-  // Most Android cameras hand back their raw, un-rotated landscape sensor
-  // buffer via getUserMedia (confirmed: 2560x1440 even when held upright) —
-  // unlike the native camera app, which rotates that buffer before drawing
-  // it. We compensate with a CSS rotation of our own, but the correct
-  // direction depends on how this phone's sensor happens to be mounted,
-  // which we can't know without seeing it — hence the manual flip control.
-  const [rotationMode, setRotationMode] = useState<"cw" | "ccw" | "off">(
-    "cw",
-  );
-  // The position/level guide is informational only — it never blocks the
-  // shutter. This just controls whether the guide UI is shown at all.
+  // The level guide is informational only — it never blocks the shutter.
+  // This just controls whether the guide UI is shown at all.
   const [showGuide, setShowGuide] = useState(true);
-  const [baseHeading, setBaseHeading] = useState<number | null>(null);
   const [baseTilt, setBaseTilt] = useState<Tilt | null>(null);
-  const [smoothedHeading, setSmoothedHeading] = useState<
-    number | null
-  >(null);
   const [smoothedTilt, setSmoothedTilt] = useState<Tilt | null>(null);
 
   useEffect(() => {
@@ -91,28 +69,18 @@ export function CaptureScreen({
     if (el) el.scrollLeft = el.scrollWidth;
   }, [frames.length]);
 
-  // Undoing back down to zero frames should also clear the gyro baseline —
-  // otherwise the next shot would silently reuse the old starting angle/tilt
+  // Undoing back down to zero frames should also clear the tilt baseline —
+  // otherwise the next shot would silently reuse the old starting tilt
   // instead of establishing a fresh one, even though every image is gone.
   useEffect(() => {
     if (frames.length === 0) {
-      setBaseHeading(null);
       setBaseTilt(null);
     }
   }, [frames.length]);
 
-  // Raw sensor readings are noisy (especially magnetometer-based heading on
-  // Android), so smooth them with a circular EMA before using them for
-  // anything — otherwise alignment feels "super sensitive" and jittery.
-  useEffect(() => {
-    if (heading == null) return;
-    setSmoothedHeading((prev) =>
-      prev == null
-        ? heading
-        : smoothAngle(prev, heading, HEADING_SMOOTHING_ALPHA),
-    );
-  }, [heading]);
-
+  // Raw sensor readings are noisy, so smooth them with a circular EMA before
+  // using them for anything — otherwise alignment feels "super sensitive"
+  // and jittery.
   useEffect(() => {
     if (tilt == null) return;
     setSmoothedTilt((prev) =>
@@ -122,30 +90,27 @@ export function CaptureScreen({
             beta: smoothAngle(
               prev.beta,
               tilt.beta,
-              HEADING_SMOOTHING_ALPHA,
+              TILT_SMOOTHING_ALPHA,
             ),
             gamma: smoothAngle(
               prev.gamma,
               tilt.gamma,
-              HEADING_SMOOTHING_ALPHA,
+              TILT_SMOOTHING_ALPHA,
             ),
           },
     );
   }, [tilt]);
 
   function calibrateStart() {
-    if (smoothedHeading != null) setBaseHeading(smoothedHeading);
     if (smoothedTilt != null) setBaseTilt(smoothedTilt);
   }
 
-  // The first frame you capture defines "0°" and "level" — whatever angle
-  // and tilt you're at when you tap the shutter becomes the baseline
-  // everything else is measured against, rather than wherever the sensor
-  // happened to settle when the camera opened.
+  // The first frame you capture defines "level" — whatever tilt you're at
+  // when you tap the shutter becomes the baseline everything else is
+  // measured against, rather than wherever the sensor happened to settle
+  // when the camera opened.
   function captureBaselineIfFirstFrame() {
     if (frames.length !== 0) return;
-    if (smoothedHeading != null && baseHeading == null)
-      setBaseHeading(smoothedHeading);
     if (smoothedTilt != null && baseTilt == null)
       setBaseTilt(smoothedTilt);
   }
@@ -162,7 +127,7 @@ export function CaptureScreen({
     );
     if (!dataUrl) return;
     captureBaselineIfFirstFrame();
-    onCapture(dataUrl, smoothedHeading, smoothedTilt);
+    onCapture(dataUrl, smoothedTilt);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -182,7 +147,7 @@ export function CaptureScreen({
         );
         if (!dataUrl) return;
         captureBaselineIfFirstFrame();
-        onCapture(dataUrl, smoothedHeading, smoothedTilt);
+        onCapture(dataUrl, smoothedTilt);
       };
       img.src = ev.target?.result as string;
     };
@@ -196,23 +161,8 @@ export function CaptureScreen({
   const doneReady = frames.length >= Math.min(8, targetCount);
   const hint = getHintForProgress(mode, frames.length, targetCount);
 
-  const gyroActive =
-    gyroSupported && (!needsPermission || permission === "granted");
-  const relativeOf = (h: number) =>
-    baseHeading == null ? null : normalizeAngle(h - baseHeading);
-  const currentRelative =
-    smoothedHeading != null ? relativeOf(smoothedHeading) : null;
-  const step = 360 / targetCount;
-  const nextTargetRelative = normalizeAngle(frames.length * step);
-  const delta =
-    currentRelative != null
-      ? shortestDelta(currentRelative, nextTargetRelative)
-      : null;
-  const headingAligned =
-    delta != null && Math.abs(delta) <= ALIGN_TOLERANCE_DEG;
-  const capturedRelativeHeadings = frames
-    .map((f) => (f.heading != null ? relativeOf(f.heading) : null))
-    .filter((v): v is number => v != null);
+  const tiltActive =
+    tiltSupported && (!needsPermission || permission === "granted");
 
   const tiltDelta =
     baseTilt != null && smoothedTilt != null
@@ -228,41 +178,14 @@ export function CaptureScreen({
     tiltDelta == null ||
     Math.abs(tiltDelta.beta) <= LEVEL_TOLERANCE_DEG;
   const levelAligned = xAligned && yAligned;
-  const aligned = headingAligned && levelAligned;
 
-  // Only relevant in portrait: a landscape device orientation already suits
-  // a landscape sensor buffer fine on its own.
-  const isLandscapeBuffer =
-    resolution != null && resolution.width > resolution.height;
-  const rotationActive =
-    isLandscapeBuffer && rotationMode !== "off" && isPortrait;
-
-  const videoStyle: React.CSSProperties = rotationActive
-    ? {
-        position: "absolute",
-        top: "50%",
-        left: "50%",
-        width: "100vh",
-        height: "100vw",
-        // Tailwind's Preflight resets `video { max-width: 100%; height:
-        // auto }` as a standard responsive-media default — width and
-        // max-width cascade independently per-property, so without this
-        // override that reset silently clamps our 100vh width back down to
-        // the container's width, undoing the whole rotation fix.
-        maxWidth: "none",
-        maxHeight: "none",
-        transform: `translate(-50%, -50%) rotate(${
-          rotationMode === "ccw" ? -90 : 90
-        }deg)`,
-        objectFit: "contain",
-      }
-    : {
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        objectFit: "contain",
-      };
+  const videoStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+  };
 
   return (
     <div className="flex h-full flex-col bg-black">
@@ -277,7 +200,7 @@ export function CaptureScreen({
         />
 
         <div className="absolute top-1/2 left-1/2 z-4 aspect-[16/8] w-[min(92%,560px)] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-          <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-2.5 py-1 font-mono text-xs whitespace-nowrap text-white/85">
+          <div className="hidden absolute top-[-30px] left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-2.5 py-1 font-mono text-xs whitespace-nowrap text-white/85">
             {copy.fitLabel}
           </div>
           {mode === "exterior" ? (
@@ -323,25 +246,7 @@ export function CaptureScreen({
                 {resolution.width}×{resolution.height}
               </div>
             )}
-            {isLandscapeBuffer && (
-              <button
-                type="button"
-                onClick={() =>
-                  setRotationMode((m) =>
-                    m === "cw" ? "ccw" : m === "ccw" ? "off" : "cw",
-                  )
-                }
-                className="pointer-events-auto rounded-full border border-white/20 bg-black/40 px-2.5 py-1.5 font-mono text-[11px] text-text-dim backdrop-blur-md portrait:block landscape:hidden"
-              >
-                Rotate:{" "}
-                {rotationMode === "cw"
-                  ? "CW"
-                  : rotationMode === "ccw"
-                    ? "CCW"
-                    : "off"}
-              </button>
-            )}
-            {gyroSupported && (
+            {tiltSupported && (
               <button
                 type="button"
                 onClick={() => setShowGuide((v) => !v)}
@@ -381,7 +286,7 @@ export function CaptureScreen({
         </div>
 
         <div
-          className="absolute top-[calc(var(--safe-top)+60px)] left-1/2 z-5 -translate-x-1/2 rounded-full bg-black/50 px-4 py-2 text-sm whitespace-nowrap text-text backdrop-blur-md transition-opacity
+          className="hidden absolute top-[calc(var(--safe-top)+60px)] left-1/2 z-5 -translate-x-1/2 rounded-full bg-black/50 px-4 py-2 text-sm whitespace-nowrap text-text backdrop-blur-md transition-opacity
             landscape:top-[calc(var(--safe-top)+8px)] landscape:left-1/2 landscape:max-w-[46vw] landscape:truncate"
         >
           {hint}
@@ -395,108 +300,100 @@ export function CaptureScreen({
           already relocate to the right edge — keeping the center (where the actual framing
           crosshair lives) completely clear.
         */}
-        {gyroSupported && showGuide && (
-          <div
-            className="pointer-events-none absolute top-[calc(var(--safe-top)+104px)] left-1/2 z-5 flex w-max -translate-x-1/2 flex-col items-center gap-1.5
-              landscape:top-1/2 landscape:left-0 landscape:max-w-[34vw] landscape:translate-x-0 landscape:-translate-y-1/2 landscape:items-start landscape:pl-[calc(var(--safe-left)+12px)]"
-          >
-            {needsPermission && permission === "unknown" && (
-              <button
-                type="button"
-                onClick={requestPermission}
-                className="pointer-events-auto rounded-full border border-white/20 bg-black/50 px-3.5 py-2 font-mono text-xs whitespace-nowrap text-text backdrop-blur-md landscape:whitespace-normal landscape:text-center"
-              >
-                Enable position guide
-              </button>
-            )}
+        <div
+          className="pointer-events-none absolute top-[calc(var(--safe-top)+65px)] left-0 z-5 flex w-max max-w-[46vw] flex-col items-start gap-1.5 pl-[calc(var(--safe-left)+12px)]
+            landscape:top-1/2 landscape:left-0 landscape:max-w-[34vw] landscape:-translate-y-1/2 landscape:items-start landscape:pl-[calc(var(--safe-left)+12px)]"
+        >
+          {/*
+            Step-count progress ring: one wedge per frame still to shoot, filled
+            in by capture count alone — no sensor involved, so nothing here can
+            drift or jitter regardless of magnetic interference from the car.
+          */}
+          <div className="pointer-events-auto h-16 w-16 shrink-0">
+            <StepRing
+              targetCount={targetCount}
+              captured={frames.length}
+            />
+          </div>
 
-            {permission === "denied" && (
-              <div className="pointer-events-auto max-w-[26ch] rounded-2xl bg-black/50 px-3 py-2 text-center font-mono text-[11px] leading-snug whitespace-normal text-text-dim backdrop-blur-md">
-                Motion access is off, so the position guide can't run.
-                iOS: Settings → Safari → Motion &amp; Orientation
-                Access. Android: Site settings → Motion sensors.
+          {tiltSupported && showGuide && (
+            <>
+              {needsPermission && permission === "unknown" && (
                 <button
                   type="button"
-                  onClick={() => setShowGuide(false)}
-                  className="mt-1 block w-full underline"
+                  onClick={requestPermission}
+                  className="pointer-events-auto rounded-full border border-white/20 bg-black/50 px-3.5 py-2 font-mono text-xs whitespace-nowrap text-text backdrop-blur-md landscape:whitespace-normal landscape:text-center"
                 >
-                  dismiss
+                  Enable level guide
                 </button>
-              </div>
-            )}
+              )}
 
-            {gyroActive && smoothedHeading == null && (
-              <div className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
-                Waiting for motion sensor…
-              </div>
-            )}
-
-            {gyroActive &&
-              smoothedHeading != null &&
-              baseHeading == null && (
-                <div className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
-                  Point where you want to start, then tap capture
+              {permission === "denied" && (
+                <div className="pointer-events-auto max-w-[26ch] rounded-2xl bg-black/50 px-3 py-2 text-center font-mono text-[11px] leading-snug whitespace-normal text-text-dim backdrop-blur-md">
+                  Motion access is off, so the level guide can't run.
+                  iOS: Settings → Safari → Motion &amp; Orientation
+                  Access. Android: Site settings → Motion sensors.
+                  <button
+                    type="button"
+                    onClick={() => setShowGuide(false)}
+                    className="mt-1 block w-full underline"
+                  >
+                    dismiss
+                  </button>
                 </div>
               )}
 
-            {gyroActive && currentRelative != null && (
-              <>
-                <div className="flex items-center gap-3 landscape:flex-col landscape:items-start landscape:gap-2">
-                  <div
-                    className="h-16 w-16 
-                  shrink-0"
-                  >
-                    <CompassGuide
-                      targetCount={targetCount}
-                      capturedRelativeHeadings={
-                        capturedRelativeHeadings
-                      }
-                      currentRelative={currentRelative}
-                      nextTargetRelative={nextTargetRelative}
-                      aligned={headingAligned}
+              {tiltActive && smoothedTilt == null && (
+                <div className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
+                  Waiting for motion sensor…
+                </div>
+              )}
+
+              {tiltActive &&
+                smoothedTilt != null &&
+                baseTilt == null && (
+                  <div className="hidden pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
+                    Tap capture to set your starting level
+                  </div>
+                )}
+
+              {tiltActive && tiltDelta != null && (
+                <>
+                  <div className=" pointer-events-auto rounded-xl bg-black/50 px-2.5 py-2 backdrop-blur-md">
+                    <AxisGauge
+                      label="X"
+                      delta={tiltDelta.gamma}
+                      aligned={xAligned}
+                    />
+                    <AxisGauge
+                      label="Y"
+                      delta={tiltDelta.beta}
+                      aligned={yAligned}
                     />
                   </div>
-                  {tiltDelta != null && (
-                    <div className="pointer-events-auto rounded-xl bg-black/50 px-2.5 py-2 backdrop-blur-md">
-                      <AxisGauge
-                        label="X"
-                        delta={tiltDelta.gamma}
-                        aligned={xAligned}
-                      />
-                      <AxisGauge
-                        label="Y"
-                        delta={tiltDelta.beta}
-                        aligned={yAligned}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div
-                  className={`pointer-events-auto rounded-full px-3 py-1 font-mono text-xs whitespace-nowrap backdrop-blur-md landscape:whitespace-normal landscape:text-center ${
-                    aligned
-                      ? "bg-accent/20 text-accent"
-                      : "bg-black/50 text-text"
-                  }`}
-                >
-                  {!headingAligned
-                    ? `Turn ${Math.round(Math.abs(delta ?? 0))}° ${
-                        (delta ?? 0) > 0 ? "right" : "left"
-                      }`
-                    : !levelAligned
-                      ? "Match your starting tilt"
-                      : "Aligned — tap to capture"}
-                </div>
-                <button
-                  type="button"
-                  onClick={calibrateStart}
-                  className="pointer-events-auto font-mono text-[11px] text-text-dim underline"
-                >
-                  calibrate start here
-                </button>
-              </>
-            )}
-          </div>
-        )}
+                  <div
+                    className={`pointer-events-auto rounded-full px-3 py-1 font-mono text-xs whitespace-nowrap backdrop-blur-md landscape:whitespace-normal landscape:text-center ${
+                      levelAligned
+                        ? "bg-accent/20 text-accent"
+                        : "bg-black/50 text-text"
+                    }`}
+                  >
+                    {levelAligned
+                      ? "Aligned — tap to capture"
+                      : "Match your starting tilt"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={calibrateStart}
+                    className="pointer-events-auto font-mono text-[11px] text-text-dim underline"
+                  >
+                    calibrate start here
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
 
         {/*
           Portrait: bar pinned to the bottom edge, controls stacked vertically inside it.

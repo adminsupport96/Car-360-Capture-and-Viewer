@@ -1,12 +1,10 @@
-export const ALIGN_TOLERANCE_DEG = 14;
-
 // How far beta/gamma (tilt) may drift from the first frame's tilt before a
 // shot is considered "off level".
 export const LEVEL_TOLERANCE_DEG = 12;
 
-// Exponential moving average factor for smoothing raw heading readings.
+// Exponential moving average factor for smoothing raw tilt readings.
 // Lower = smoother/slower to react, higher = snappier/noisier.
-export const HEADING_SMOOTHING_ALPHA = 0.15;
+export const TILT_SMOOTHING_ALPHA = 0.15;
 
 export function normalizeAngle(deg: number): number {
   return ((deg % 360) + 360) % 360;

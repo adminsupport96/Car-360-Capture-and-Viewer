@@ -8,6 +8,7 @@ const FRAME_SKIP_OPTIONS = [1, 2, 3, 4];
 
 interface ViewerScreenProps {
   mode: Mode;
+  unitName: string;
   frames: Frame[];
   onBackToCapture: () => void;
   onRestart: () => void;
@@ -15,6 +16,7 @@ interface ViewerScreenProps {
 
 export function ViewerScreen({
   mode,
+  unitName,
   frames,
   onBackToCapture,
   onRestart,
@@ -61,7 +63,7 @@ export function ViewerScreen({
     if (saving) return;
     setSaving(true);
     try {
-      await saveAllFrames(frames);
+      await saveAllFrames(frames, unitName, copy.fileLabel);
     } finally {
       setSaving(false);
     }

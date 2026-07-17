@@ -6,6 +6,7 @@ import type { Frame, Mode, Screen } from "./types";
 
 function App() {
   const [screen, setScreen] = useState<Screen>("intro");
+  const [unitName, setUnitName] = useState("");
   const [mode, setMode] = useState<Mode>("exterior");
   const [targetCount, setTargetCount] = useState(24);
   const [frames, setFrames] = useState<Frame[]>([]);
@@ -17,10 +18,9 @@ function App() {
 
   function handleCapture(
     src: string,
-    heading: number | null,
     tilt: { beta: number; gamma: number } | null,
   ) {
-    setFrames((prev) => [...prev, { src, heading, tilt }]);
+    setFrames((prev) => [...prev, { src, tilt }]);
   }
 
   function handleUndo() {
@@ -49,6 +49,8 @@ function App() {
     <div className="fixed inset-0 flex flex-col">
       {screen === "intro" && (
         <IntroScreen
+          unitName={unitName}
+          onUnitNameChange={setUnitName}
           mode={mode}
           onModeChange={setMode}
           targetCount={targetCount}
@@ -70,6 +72,7 @@ function App() {
       {screen === "viewer" && (
         <ViewerScreen
           mode={mode}
+          unitName={unitName}
           frames={frames}
           onBackToCapture={startCapture}
           onRestart={handleRestart}
