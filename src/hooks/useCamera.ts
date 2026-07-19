@@ -50,6 +50,15 @@ export function useCamera(
     setShowFallback(false);
     setResolution(null);
 
+    // `mediaDevices` is only defined in secure contexts (https, or
+    // localhost) — on a plain-http LAN address it's `undefined`, and calling
+    // `.getUserMedia` on it would throw synchronously, outside any promise
+    // chain, crashing the app instead of falling back gracefully.
+    if (!navigator.mediaDevices) {
+      setShowFallback(true);
+      return;
+    }
+
     navigator.mediaDevices
       .getUserMedia(VIDEO_CONSTRAINTS_WIDE)
       .catch(() => navigator.mediaDevices.getUserMedia(VIDEO_CONSTRAINTS))

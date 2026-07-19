@@ -20,7 +20,7 @@ function polarToXY(angleDeg: number, r: number) {
 // walk around the car takes.
 export function StepRing({ targetCount, captured }: StepRingProps) {
   const step = 360 / targetCount;
-  // Dots must not overlap even at the densest setting (36) — cap their
+  // Dots must not overlap even at the densest setting (24) — cap their
   // radius at a bit under half the chord length between neighbors.
   const chord = 2 * R * Math.sin(Math.PI / targetCount);
   const dotR = Math.max(2, Math.min(5, chord / 2 - 1));

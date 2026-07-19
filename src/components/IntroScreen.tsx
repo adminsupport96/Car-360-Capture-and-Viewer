@@ -5,7 +5,6 @@ const QUALITY_OPTIONS: { n: number; label: string }[] = [
   { n: 8, label: "fastest" },
   { n: 12, label: "quick" },
   { n: 24, label: "smooth" },
-  { n: 36, label: "buttery" },
 ];
 
 interface IntroScreenProps {
@@ -50,7 +49,7 @@ export function IntroScreen({
 
         <div className="flex flex-col gap-2">
           <div className="text-xs text-text-dim">Frames for a full turn</div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             {QUALITY_OPTIONS.map(({ n, label }) => (
               <button
                 key={n}
