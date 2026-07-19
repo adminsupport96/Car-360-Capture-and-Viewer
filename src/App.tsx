@@ -19,8 +19,9 @@ function App() {
   function handleCapture(
     src: string,
     tilt: { beta: number; gamma: number } | null,
+    heading: number | null,
   ) {
-    setFrames((prev) => [...prev, { src, tilt }]);
+    setFrames((prev) => [...prev, { src, tilt, heading }]);
   }
 
   function handleUndo() {

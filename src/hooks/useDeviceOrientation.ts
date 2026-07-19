@@ -26,6 +26,7 @@ export function useDeviceOrientation(active: boolean) {
   const needsPermission = supported && getRequestPermissionFn() !== null;
 
   const [tilt, setTilt] = useState<Tilt | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
   const [permission, setPermission] = useState<PermissionState>(
     needsPermission ? "unknown" : "granted",
   );
@@ -37,6 +38,9 @@ export function useDeviceOrientation(active: boolean) {
       const orientation = e as DeviceOrientationEvent;
       if (orientation.beta != null && orientation.gamma != null) {
         setTilt({ beta: orientation.beta, gamma: orientation.gamma });
+      }
+      if (orientation.alpha != null) {
+        setHeading(orientation.alpha);
       }
     }
     window.addEventListener("deviceorientation", handler);
@@ -57,5 +61,12 @@ export function useDeviceOrientation(active: boolean) {
     }
   }
 
-  return { tilt, supported, needsPermission, permission, requestPermission };
+  return {
+    tilt,
+    heading,
+    supported,
+    needsPermission,
+    permission,
+    requestPermission,
+  };
 }

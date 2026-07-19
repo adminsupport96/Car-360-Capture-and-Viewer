@@ -9,7 +9,9 @@ import {
 } from "../hooks/useDeviceOrientation";
 import { drawToDataUrl } from "../lib/imageCapture";
 import {
+  HEADING_SMOOTHING_ALPHA,
   LEVEL_TOLERANCE_DEG,
+  ORBIT_READY_FRACTION,
   TILT_SMOOTHING_ALPHA,
   shortestDelta,
   smoothAngle,
@@ -25,7 +27,7 @@ interface CaptureScreenProps {
   mode: Mode;
   frames: Frame[];
   targetCount: number;
-  onCapture: (src: string, tilt: Tilt | null) => void;
+  onCapture: (src: string, tilt: Tilt | null, heading: number | null) => void;
   onUndo: () => void;
   onClose: () => void;
   onDone: () => void;
@@ -53,6 +55,7 @@ export function CaptureScreen({
   } = useFullscreen();
   const {
     tilt,
+    heading,
     supported: tiltSupported,
     needsPermission,
     permission,
@@ -63,6 +66,7 @@ export function CaptureScreen({
   const [showGuide, setShowGuide] = useState(true);
   const [baseTilt, setBaseTilt] = useState<Tilt | null>(null);
   const [smoothedTilt, setSmoothedTilt] = useState<Tilt | null>(null);
+  const [smoothedHeading, setSmoothedHeading] = useState<number | null>(null);
 
   useEffect(() => {
     const el = thumbstripRef.current;
@@ -101,6 +105,15 @@ export function CaptureScreen({
     );
   }, [tilt]);
 
+  useEffect(() => {
+    if (heading == null) return;
+    setSmoothedHeading((prev) =>
+      prev == null
+        ? heading
+        : smoothAngle(prev, heading, HEADING_SMOOTHING_ALPHA),
+    );
+  }, [heading]);
+
   function calibrateStart() {
     if (smoothedTilt != null) setBaseTilt(smoothedTilt);
   }
@@ -127,7 +140,7 @@ export function CaptureScreen({
     );
     if (!dataUrl) return;
     captureBaselineIfFirstFrame();
-    onCapture(dataUrl, smoothedTilt);
+    onCapture(dataUrl, smoothedTilt, smoothedHeading);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -147,7 +160,7 @@ export function CaptureScreen({
         );
         if (!dataUrl) return;
         captureBaselineIfFirstFrame();
-        onCapture(dataUrl, smoothedTilt);
+        onCapture(dataUrl, smoothedTilt, smoothedHeading);
       };
       img.src = ev.target?.result as string;
     };
@@ -159,10 +172,35 @@ export function CaptureScreen({
   const dashoffset = RING_LEN * (1 - pct);
   const undoDisabled = frames.length === 0;
   const doneReady = frames.length >= Math.min(8, targetCount);
-  const hint = getHintForProgress(mode, frames.length, targetCount);
 
   const tiltActive =
     tiltSupported && (!needsPermission || permission === "granted");
+
+  // Orbit progress: how far the phone has turned since the *previous* shot,
+  // as a fraction of the ideal per-shot angle — not an absolute compass
+  // reading, which would drift near the car's steel body. Exterior mode
+  // only, for now.
+  const orbitStep = 360 / targetCount;
+  const lastCaptureHeading =
+    frames.length > 0 ? frames[frames.length - 1].heading : null;
+  const headingActive =
+    mode === "exterior" && tiltActive && smoothedHeading != null;
+  const orbitDelta =
+    headingActive && lastCaptureHeading != null
+      ? shortestDelta(lastCaptureHeading, smoothedHeading)
+      : null;
+  const orbitProgress =
+    orbitDelta != null ? Math.abs(orbitDelta) / orbitStep : null;
+  const orbitReady =
+    orbitProgress != null && orbitProgress >= ORBIT_READY_FRACTION;
+
+  const orbitHint =
+    headingActive && frames.length > 0 && frames.length < targetCount
+      ? orbitReady
+        ? "Aligned — tap to capture"
+        : `${Math.max(1, Math.round(orbitStep - Math.abs(orbitDelta ?? 0)))}° more — keep moving`
+      : null;
+  const hint = orbitHint ?? getHintForProgress(mode, frames.length, targetCount);
 
   const tiltDelta =
     baseTilt != null && smoothedTilt != null
@@ -286,8 +324,12 @@ export function CaptureScreen({
         </div>
 
         <div
-          className="hidden absolute top-[calc(var(--safe-top)+60px)] left-1/2 z-5 -translate-x-1/2 rounded-full bg-black/50 px-4 py-2 text-sm whitespace-nowrap text-text backdrop-blur-md transition-opacity
-            landscape:top-[calc(var(--safe-top)+8px)] landscape:left-1/2 landscape:max-w-[46vw] landscape:truncate"
+          className={`absolute top-[calc(var(--safe-top)+60px)] left-1/2 z-5 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap backdrop-blur-md transition-opacity
+            landscape:top-[calc(var(--safe-top)+8px)] landscape:left-1/2 landscape:max-w-[46vw] landscape:truncate ${
+              orbitReady
+                ? "bg-accent/20 text-accent"
+                : "bg-black/50 text-text"
+            }`}
         >
           {hint}
         </div>
@@ -305,14 +347,18 @@ export function CaptureScreen({
             landscape:top-1/2 landscape:left-0 landscape:max-w-[34vw] landscape:-translate-y-1/2 landscape:items-start landscape:pl-[calc(var(--safe-left)+12px)]"
         >
           {/*
-            Step-count progress ring: one wedge per frame still to shoot, filled
-            in by capture count alone — no sensor involved, so nothing here can
+            Step-count progress ring: one dot per frame still to shoot, laid
+            out by capture count alone, so the positions themselves can't
             drift or jitter regardless of magnetic interference from the car.
+            The live arc between dots (when heading tracking is active) is
+            the only sensor-driven part — a relative reading since the last
+            shot, not an absolute compass bearing.
           */}
           <div className="pointer-events-auto h-16 w-16 shrink-0">
             <StepRing
               targetCount={targetCount}
               captured={frames.length}
+              nextProgress={headingActive ? (orbitProgress ?? 0) : undefined}
             />
           </div>
 
