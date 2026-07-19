@@ -27,7 +27,11 @@ interface CaptureScreenProps {
   mode: Mode;
   frames: Frame[];
   targetCount: number;
-  onCapture: (src: string, tilt: Tilt | null, heading: number | null) => void;
+  onCapture: (
+    src: string,
+    tilt: Tilt | null,
+    heading: number | null,
+  ) => void;
   onUndo: () => void;
   onClose: () => void;
   onDone: () => void;
@@ -66,7 +70,9 @@ export function CaptureScreen({
   const [showGuide, setShowGuide] = useState(true);
   const [baseTilt, setBaseTilt] = useState<Tilt | null>(null);
   const [smoothedTilt, setSmoothedTilt] = useState<Tilt | null>(null);
-  const [smoothedHeading, setSmoothedHeading] = useState<number | null>(null);
+  const [smoothedHeading, setSmoothedHeading] = useState<
+    number | null
+  >(null);
 
   useEffect(() => {
     const el = thumbstripRef.current;
@@ -171,20 +177,21 @@ export function CaptureScreen({
   const pct = Math.min(frames.length / targetCount, 1);
   const dashoffset = RING_LEN * (1 - pct);
   const undoDisabled = frames.length === 0;
-  const doneReady = frames.length >= Math.min(8, targetCount);
+  const doneReady = frames.length >= targetCount;
 
   const tiltActive =
     tiltSupported && (!needsPermission || permission === "granted");
 
   // Orbit progress: how far the phone has turned since the *previous* shot,
   // as a fraction of the ideal per-shot angle — not an absolute compass
-  // reading, which would drift near the car's steel body. Exterior mode
-  // only, for now.
+  // reading, which would drift near the car's steel body (and, for interior
+  // shots, the cabin's own electronics/speaker magnets). Applies to both
+  // modes: exterior is walking a circle while facing the car, interior is
+  // rotating the phone in place — either way it's the same yaw rotation.
   const orbitStep = 360 / targetCount;
   const lastCaptureHeading =
     frames.length > 0 ? frames[frames.length - 1].heading : null;
-  const headingActive =
-    mode === "exterior" && tiltActive && smoothedHeading != null;
+  const headingActive = tiltActive && smoothedHeading != null;
   const orbitDelta =
     headingActive && lastCaptureHeading != null
       ? shortestDelta(lastCaptureHeading, smoothedHeading)
@@ -200,7 +207,8 @@ export function CaptureScreen({
         ? "Aligned — tap to capture"
         : `${Math.max(1, Math.round(orbitStep - Math.abs(orbitDelta ?? 0)))}° more — keep moving`
       : null;
-  const hint = orbitHint ?? getHintForProgress(mode, frames.length, targetCount);
+  const hint =
+    orbitHint ?? getHintForProgress(mode, frames.length, targetCount);
 
   const tiltDelta =
     baseTilt != null && smoothedTilt != null
@@ -323,17 +331,6 @@ export function CaptureScreen({
           </div>
         </div>
 
-        <div
-          className={`absolute top-[calc(var(--safe-top)+60px)] left-1/2 z-5 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap backdrop-blur-md transition-opacity
-            landscape:top-[calc(var(--safe-top)+8px)] landscape:left-1/2 landscape:max-w-[46vw] landscape:truncate ${
-              orbitReady
-                ? "bg-accent/20 text-accent"
-                : "bg-black/50 text-text"
-            }`}
-        >
-          {hint}
-        </div>
-
         {/*
           Portrait: this whole guide sits centered below the hint banner, over the top
           of the framing guide (there's room — the guide box itself starts further down).
@@ -358,7 +355,9 @@ export function CaptureScreen({
             <StepRing
               targetCount={targetCount}
               captured={frames.length}
-              nextProgress={headingActive ? (orbitProgress ?? 0) : undefined}
+              nextProgress={
+                headingActive ? (orbitProgress ?? 0) : undefined
+              }
             />
           </div>
 
@@ -456,6 +455,14 @@ export function CaptureScreen({
             landscape:bg-linear-to-l
             landscape:px-0 landscape:py-5 landscape:pr-[calc(var(--safe-right)+18px)] landscape:pb-0"
         >
+          <div
+            className={`w-full rounded-full px-4 py-2 text-center text-sm whitespace-nowrap backdrop-blur-md transition-opacity landscape:hidden ${
+              orbitReady ? "bg-accent/20 text-accent" : "bg-black/50 text-text"
+            }`}
+          >
+            {hint}
+          </div>
+
           <div
             ref={thumbstripRef}
             className="pointer-events-auto flex w-full gap-1.5 overflow-x-auto px-0.5 py-1
