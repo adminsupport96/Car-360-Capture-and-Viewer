@@ -139,6 +139,13 @@ export function CaptureScreen({
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.srcObject) return;
+    // iOS requires a direct user gesture to grant motion-sensor access, and
+    // never remembers that grant across a reload — piggyback the request on
+    // the shutter tap itself (the gesture users are already making) instead
+    // of relying on them to notice a separate "enable" button first.
+    if (needsPermission && permission === "unknown") {
+      requestPermission();
+    }
     const dataUrl = drawToDataUrl(
       canvas,
       video,
