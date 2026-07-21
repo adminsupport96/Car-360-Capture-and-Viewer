@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MODES } from "../modes";
-import { saveAllFrames } from "../lib/saveFrames";
+import { baseFileName, buildFramesZip, saveAllFrames } from "../lib/saveFrames";
+import { saveBlobToDrive } from "../lib/googleDrive";
 import type { Frame, Mode } from "../types";
 
 const SENSITIVITY = 10; // px per frame step
@@ -27,6 +28,7 @@ export function ViewerScreen({
   const [frameSkip, setFrameSkip] = useState(1);
   const [dragHintVisible, setDragHintVisible] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [drive, setDrive] = useState<"idle" | "saving" | "error">("idle");
   const dragging = useRef(false);
   const lastX = useRef(0);
   const accum = useRef(0);
@@ -66,6 +68,21 @@ export function ViewerScreen({
       await saveAllFrames(frames, unitName, copy.fileLabel);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveToDrive() {
+    if (drive === "saving") return;
+    setDrive("saving");
+    try {
+      const baseName = baseFileName(unitName, copy.fileLabel);
+      const blob = await buildFramesZip(frames, baseName);
+      await saveBlobToDrive(blob, `${baseName}.zip`);
+      setDrive("idle");
+    } catch (err) {
+      console.error("Save to Drive failed:", err);
+      setDrive("error");
+      setTimeout(() => setDrive("idle"), 2500);
     }
   }
 
@@ -119,6 +136,18 @@ export function ViewerScreen({
             className="rounded-full border border-bg-elevated-2 bg-bg-elevated px-3 py-1 font-mono text-xs text-text-dim disabled:opacity-50"
           >
             {saving ? "saving…" : "save all"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveToDrive}
+            disabled={drive === "saving"}
+            className="rounded-full border border-bg-elevated-2 bg-bg-elevated px-3 py-1 font-mono text-xs text-text-dim disabled:opacity-50"
+          >
+            {drive === "saving"
+              ? "saving to drive…"
+              : drive === "error"
+                ? "drive save failed"
+                : "save to drive"}
           </button>
         </div>
       </div>

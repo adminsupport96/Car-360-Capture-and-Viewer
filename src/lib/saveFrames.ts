@@ -5,12 +5,14 @@ function sanitize(s: string): string {
   return s.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-export async function saveAllFrames(
+export function baseFileName(unitName: string, modeLabel: string): string {
+  return `${sanitize(unitName) || "unit"}_${sanitize(modeLabel)}`;
+}
+
+export async function buildFramesZip(
   frames: Frame[],
-  unitName: string,
-  modeLabel: string,
-) {
-  const baseName = `${sanitize(unitName) || "unit"}_${sanitize(modeLabel)}`;
+  baseName: string,
+): Promise<Blob> {
   const zip = new JSZip();
   const pad = String(frames.length).length;
 
@@ -20,7 +22,16 @@ export async function saveAllFrames(
     zip.file(`${baseName}-${index}.jpg`, base64, { base64: true });
   });
 
-  const blob = await zip.generateAsync({ type: "blob" });
+  return zip.generateAsync({ type: "blob" });
+}
+
+export async function saveAllFrames(
+  frames: Frame[],
+  unitName: string,
+  modeLabel: string,
+) {
+  const baseName = baseFileName(unitName, modeLabel);
+  const blob = await buildFramesZip(frames, baseName);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
