@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MODES } from "../modes";
 import { baseFileName, buildFramesZip, saveAllFrames } from "../lib/saveFrames";
 import { saveBlobToDrive } from "../lib/googleDrive";
+import { Toast } from "./Toast";
 import type { Frame, Mode } from "../types";
 
 const SENSITIVITY = 10; // px per frame step
@@ -29,18 +30,27 @@ export function ViewerScreen({
   const [dragHintVisible, setDragHintVisible] = useState(true);
   const [saving, setSaving] = useState(false);
   const [drive, setDrive] = useState<"idle" | "saving" | "error">("idle");
+  const [toastVisible, setToastVisible] = useState(false);
   const dragging = useRef(false);
   const lastX = useRef(0);
   const accum = useRef(0);
   const playTimer = useRef<number | null>(null);
+  const toastTimer = useRef<number | null>(null);
   const frameSkipRef = useRef(frameSkip);
   frameSkipRef.current = frameSkip;
 
   useEffect(() => {
     return () => {
       if (playTimer.current) clearInterval(playTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
+
+  function showSavedToast() {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastVisible(true);
+    toastTimer.current = window.setTimeout(() => setToastVisible(false), 2000);
+  }
 
   function stopPlaying() {
     setPlaying(false);
@@ -66,6 +76,7 @@ export function ViewerScreen({
     setSaving(true);
     try {
       await saveAllFrames(frames, unitName, copy.fileLabel);
+      showSavedToast();
     } finally {
       setSaving(false);
     }
@@ -79,6 +90,7 @@ export function ViewerScreen({
       const blob = await buildFramesZip(frames, baseName);
       await saveBlobToDrive(blob, `${baseName}.zip`);
       setDrive("idle");
+      showSavedToast();
     } catch (err) {
       console.error("Save to Drive failed:", err);
       setDrive("error");
@@ -160,6 +172,7 @@ export function ViewerScreen({
         onPointerCancel={endDrag}
         onPointerLeave={endDrag}
       >
+        <Toast visible={toastVisible} />
         <img
           src={frames[curIdx].src}
           alt="frame"
