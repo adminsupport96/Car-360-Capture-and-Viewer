@@ -74,6 +74,7 @@ export function CaptureScreen({
     number | null
   >(null);
   const [motionTimedOut, setMotionTimedOut] = useState(false);
+  const [motionPromptSkipped, setMotionPromptSkipped] = useState(false);
 
   useEffect(() => {
     const el = thumbstripRef.current;
@@ -135,17 +136,14 @@ export function CaptureScreen({
       setBaseTilt(smoothedTilt);
   }
 
+  async function handleEnableMotion() {
+    await requestPermission();
+  }
+
   function handleShutter() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.srcObject) return;
-    // iOS requires a direct user gesture to grant motion-sensor access, and
-    // never remembers that grant across a reload — piggyback the request on
-    // the shutter tap itself (the gesture users are already making) instead
-    // of relying on them to notice a separate "enable" button first.
-    if (needsPermission && permission === "unknown") {
-      requestPermission();
-    }
     const dataUrl = drawToDataUrl(
       canvas,
       video,
@@ -303,6 +301,33 @@ export function CaptureScreen({
             />
           </div>
         )}
+
+        {!showFallback &&
+          needsPermission &&
+          permission === "unknown" &&
+          !motionPromptSkipped && (
+            <div className="absolute inset-0 z-6 flex flex-col items-center justify-center gap-4 bg-bg/95 p-8 text-center backdrop-blur-sm">
+              <p className="max-w-[30ch] text-sm leading-normal text-text-dim">
+                This app uses your phone's motion sensors to show a level
+                guide while you shoot. iOS asks for this every time you
+                open the camera.
+              </p>
+              <button
+                type="button"
+                onClick={handleEnableMotion}
+                className="rounded-2xl border-none bg-accent px-5.5 py-3.5 font-display text-[15px] font-bold text-accent-ink"
+              >
+                Enable motion sensors
+              </button>
+              <button
+                type="button"
+                onClick={() => setMotionPromptSkipped(true)}
+                className="bg-transparent border-none font-mono text-xs text-text-dim underline"
+              >
+                Skip for now
+              </button>
+            </div>
+          )}
 
         <div className="absolute inset-x-0 top-0 z-5 flex items-start justify-between bg-linear-to-b from-black/55 to-transparent pt-[calc(var(--safe-top)+14px)] px-4 pb-10">
           <div className="flex items-center gap-2">
