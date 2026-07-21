@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MODES } from "../modes";
 import { baseFileName, buildFramesZip, saveAllFrames } from "../lib/saveFrames";
 import { saveBlobToDrive } from "../lib/googleDrive";
+import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
 import { Toast } from "./Toast";
 import type { Frame, Mode } from "../types";
 
@@ -85,6 +86,7 @@ export function ViewerScreen({
   async function handleSaveToDrive() {
     if (drive === "saving") return;
     setDrive("saving");
+    await acquireWakeLock();
     try {
       const baseName = baseFileName(unitName, copy.fileLabel);
       const blob = await buildFramesZip(frames, baseName);
@@ -95,6 +97,8 @@ export function ViewerScreen({
       console.error("Save to Drive failed:", err);
       setDrive("error");
       setTimeout(() => setDrive("idle"), 2500);
+    } finally {
+      await releaseWakeLock();
     }
   }
 

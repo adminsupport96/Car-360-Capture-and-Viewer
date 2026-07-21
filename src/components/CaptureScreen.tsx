@@ -73,6 +73,7 @@ export function CaptureScreen({
   const [smoothedHeading, setSmoothedHeading] = useState<
     number | null
   >(null);
+  const [motionTimedOut, setMotionTimedOut] = useState(false);
 
   useEffect(() => {
     const el = thumbstripRef.current;
@@ -181,6 +182,21 @@ export function CaptureScreen({
 
   const tiltActive =
     tiltSupported && (!needsPermission || permission === "granted");
+
+  // On some iOS versions, `DeviceOrientationEvent.requestPermission` isn't
+  // exposed at all when the device-wide Settings > Safari > Motion &
+  // Orientation Access toggle is off — our permission model then wrongly
+  // treats access as already granted, and events simply never arrive, with
+  // no error to react to. Surface a hint after a few seconds of silence
+  // rather than leaving "Waiting for motion sensor…" up forever.
+  useEffect(() => {
+    if (!tiltActive || smoothedTilt != null) {
+      setMotionTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setMotionTimedOut(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [tiltActive, smoothedTilt]);
 
   // Orbit progress: how far the phone has turned since the *previous* shot,
   // as a fraction of the ideal per-shot angle — not an absolute compass
@@ -388,9 +404,23 @@ export function CaptureScreen({
                 </div>
               )}
 
-              {tiltActive && smoothedTilt == null && (
+              {tiltActive && smoothedTilt == null && !motionTimedOut && (
                 <div className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
                   Waiting for motion sensor…
+                </div>
+              )}
+
+              {tiltActive && smoothedTilt == null && motionTimedOut && (
+                <div className="pointer-events-auto max-w-[26ch] rounded-2xl bg-black/50 px-3 py-2 text-center font-mono text-[11px] leading-snug whitespace-normal text-text-dim backdrop-blur-md">
+                  No motion data yet. On iPhone, check Settings → Safari →
+                  Motion &amp; Orientation Access is on, then reload.
+                  <button
+                    type="button"
+                    onClick={() => setShowGuide(false)}
+                    className="mt-1 block w-full underline"
+                  >
+                    dismiss
+                  </button>
                 </div>
               )}
 

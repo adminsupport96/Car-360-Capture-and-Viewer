@@ -1,5 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
+// Default Vercel Node function timeout (10s) can be too short for a phone on
+// a weak connection — the client's own upload of the zip counts against it.
+export const config = {
+  maxDuration: 60,
+};
+
 async function getAccessToken(
   clientId: string,
   clientSecret: string,
