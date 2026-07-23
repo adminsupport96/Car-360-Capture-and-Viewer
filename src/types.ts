@@ -1,6 +1,6 @@
 export type Mode = "exterior" | "interior";
 
-export type Screen = "intro" | "capture" | "viewer";
+export type Screen = "intro" | "capture" | "viewer" | "library";
 
 export interface Frame {
   src: string;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IntroScreen } from "./components/IntroScreen";
 import { CaptureScreen } from "./components/CaptureScreen";
 import { ViewerScreen } from "./components/ViewerScreen";
+import { LibraryScreen } from "./components/LibraryScreen";
 import type { Frame, Mode, Screen } from "./types";
 
 function App() {
@@ -57,6 +58,7 @@ function App() {
           targetCount={targetCount}
           onTargetCountChange={setTargetCount}
           onStart={startCapture}
+          onOpenLibrary={() => setScreen("library")}
         />
       )}
       {screen === "capture" && (
@@ -78,6 +80,9 @@ function App() {
           onBackToCapture={startCapture}
           onRestart={handleRestart}
         />
+      )}
+      {screen === "library" && (
+        <LibraryScreen onBack={() => setScreen("intro")} />
       )}
     </div>
   );

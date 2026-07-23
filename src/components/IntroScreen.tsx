@@ -15,6 +15,7 @@ interface IntroScreenProps {
   targetCount: number;
   onTargetCountChange: (n: number) => void;
   onStart: () => void;
+  onOpenLibrary: () => void;
 }
 
 export function IntroScreen({
@@ -25,13 +26,25 @@ export function IntroScreen({
   targetCount,
   onTargetCountChange,
   onStart,
+  onOpenLibrary,
 }: IntroScreenProps) {
   const canStart = unitName.trim().length > 0;
 
   return (
     <div className="flex h-full flex-col justify-between overflow-y-auto pt-[calc(var(--safe-top)+32px)] pr-7 pb-[calc(var(--safe-bottom)+28px)] pl-7 [-webkit-overflow-scrolling:touch] bg-bg">
       <div className="flex flex-col gap-6">
-        <h1 className="m-0 font-display text-2xl font-bold">New capture</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="m-0 font-display text-2xl font-bold">
+            New capture
+          </h1>
+          <button
+            type="button"
+            onClick={onOpenLibrary}
+            className="rounded-full border border-bg-elevated-2 bg-bg-elevated px-3 py-1.5 font-mono text-xs text-text-dim"
+          >
+            Saved spins
+          </button>
+        </div>
 
         <div className="flex flex-col gap-2">
           <label htmlFor="unit-name" className="text-xs text-text-dim">

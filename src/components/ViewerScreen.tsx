@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MODES } from "../modes";
 import { baseFileName, buildFramesZip, saveAllFrames } from "../lib/saveFrames";
 import { saveBlobToDrive } from "../lib/googleDrive";
+import { saveZipLocally } from "../lib/localLibrary";
 import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
 import { Toast } from "./Toast";
 import type { Frame, Mode } from "../types";
@@ -30,6 +31,9 @@ export function ViewerScreen({
   const [frameSkip, setFrameSkip] = useState(1);
   const [dragHintVisible, setDragHintVisible] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [localSave, setLocalSave] = useState<"idle" | "saving" | "error">(
+    "idle",
+  );
   const [drive, setDrive] = useState<"idle" | "saving" | "error">("idle");
   const [toastVisible, setToastVisible] = useState(false);
   const dragging = useRef(false);
@@ -80,6 +84,26 @@ export function ViewerScreen({
       showSavedToast();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveLocally() {
+    if (localSave === "saving") return;
+    setLocalSave("saving");
+    try {
+      const baseName = baseFileName(unitName, copy.fileLabel);
+      const blob = await buildFramesZip(frames, baseName);
+      await saveZipLocally(blob, `${baseName}.zip`, {
+        unitName,
+        mode,
+        frameCount: frames.length,
+      });
+      setLocalSave("idle");
+      showSavedToast();
+    } catch (err) {
+      console.error("Save locally failed:", err);
+      setLocalSave("error");
+      setTimeout(() => setLocalSave("idle"), 2500);
     }
   }
 
@@ -141,7 +165,7 @@ export function ViewerScreen({
     <div className="flex h-full flex-col bg-bg">
       <div className="flex items-center justify-between px-4.5 pt-[calc(var(--safe-top)+14px)] pb-3">
         <div className="font-display text-lg font-bold">{copy.viewTitle}</div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <div className="font-mono text-xs text-text-dim">
             {curIdx + 1} / {frames.length}
           </div>
@@ -152,6 +176,18 @@ export function ViewerScreen({
             className="rounded-full border border-bg-elevated-2 bg-bg-elevated px-3 py-1 font-mono text-xs text-text-dim disabled:opacity-50"
           >
             {saving ? "saving…" : "save all"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveLocally}
+            disabled={localSave === "saving"}
+            className="rounded-full border border-bg-elevated-2 bg-bg-elevated px-3 py-1 font-mono text-xs text-text-dim disabled:opacity-50"
+          >
+            {localSave === "saving"
+              ? "saving…"
+              : localSave === "error"
+                ? "save failed"
+                : "save locally"}
           </button>
           <button
             type="button"
