@@ -33,7 +33,6 @@ interface CaptureScreenProps {
     heading: number | null,
   ) => void;
   onUndo: () => void;
-  onRemoveFrame: (index: number) => void;
   onClose: () => void;
   onDone: () => void;
 }
@@ -44,7 +43,6 @@ export function CaptureScreen({
   targetCount,
   onCapture,
   onUndo,
-  onRemoveFrame,
   onClose,
   onDone,
 }: CaptureScreenProps) {
@@ -143,18 +141,6 @@ export function CaptureScreen({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [viewerIndex, frames.length]);
-
-  function handleRemoveViewedFrame() {
-    if (viewerIndex == null) return;
-    const oldLength = frames.length;
-    onRemoveFrame(viewerIndex);
-    setViewerIndex((i) => {
-      if (i == null) return i;
-      const newLength = oldLength - 1;
-      if (newLength <= 0) return null;
-      return i >= newLength ? newLength - 1 : i;
-    });
-  }
 
   function calibrateStart() {
     if (smoothedTilt != null) setBaseTilt(smoothedTilt);
@@ -697,16 +683,6 @@ export function CaptureScreen({
                   ›
                 </button>
               )}
-            </div>
-
-            <div className="flex items-center justify-center px-4 pt-3 pb-[calc(var(--safe-bottom)+22px)]">
-              <button
-                type="button"
-                onClick={handleRemoveViewedFrame}
-                className="rounded-2xl border-none bg-white/10 px-5.5 py-3.5 font-display text-[15px] font-bold text-text"
-              >
-                Remove this photo
-              </button>
             </div>
           </div>
         )}
