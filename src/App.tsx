@@ -28,6 +28,10 @@ function App() {
     setFrames((prev) => prev.slice(0, -1));
   }
 
+  function handleRemoveFrame(index: number) {
+    setFrames((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function handleCloseCapture() {
     if (frames.length && !confirm("Discard captured frames and go back?")) {
       return;
@@ -66,6 +70,7 @@ function App() {
           targetCount={targetCount}
           onCapture={handleCapture}
           onUndo={handleUndo}
+          onRemoveFrame={handleRemoveFrame}
           onClose={handleCloseCapture}
           onDone={handleDoneCapture}
         />

@@ -33,6 +33,7 @@ interface CaptureScreenProps {
     heading: number | null,
   ) => void;
   onUndo: () => void;
+  onRemoveFrame: (index: number) => void;
   onClose: () => void;
   onDone: () => void;
 }
@@ -43,6 +44,7 @@ export function CaptureScreen({
   targetCount,
   onCapture,
   onUndo,
+  onRemoveFrame,
   onClose,
   onDone,
 }: CaptureScreenProps) {
@@ -75,6 +77,7 @@ export function CaptureScreen({
   >(null);
   const [motionTimedOut, setMotionTimedOut] = useState(false);
   const [motionPromptSkipped, setMotionPromptSkipped] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const el = thumbstripRef.current;
@@ -121,6 +124,37 @@ export function CaptureScreen({
         : smoothAngle(prev, heading, HEADING_SMOOTHING_ALPHA),
     );
   }, [heading]);
+
+  // Lets you flip through shots taken so far to check framing/focus before
+  // the orbit is even complete, rather than waiting for the full viewer.
+  useEffect(() => {
+    if (viewerIndex == null) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setViewerIndex(null);
+      if (e.key === "ArrowLeft") {
+        setViewerIndex((i) => (i != null && i > 0 ? i - 1 : i));
+      }
+      if (e.key === "ArrowRight") {
+        setViewerIndex((i) =>
+          i != null && i < frames.length - 1 ? i + 1 : i,
+        );
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [viewerIndex, frames.length]);
+
+  function handleRemoveViewedFrame() {
+    if (viewerIndex == null) return;
+    const oldLength = frames.length;
+    onRemoveFrame(viewerIndex);
+    setViewerIndex((i) => {
+      if (i == null) return i;
+      const newLength = oldLength - 1;
+      if (newLength <= 0) return null;
+      return i >= newLength ? newLength - 1 : i;
+    });
+  }
 
   function calibrateStart() {
     if (smoothedTilt != null) setBaseTilt(smoothedTilt);
@@ -531,11 +565,18 @@ export function CaptureScreen({
               landscape:max-h-[45%] landscape:w-auto landscape:flex-col landscape:overflow-x-visible landscape:overflow-y-auto landscape:px-1 landscape:py-0.5"
           >
             {frames.map((frame, i) => (
-              <img
+              <button
                 key={i}
-                src={frame.src}
-                className="h-[38px] w-[38px] shrink-0 rounded-lg border border-white/15 object-cover"
-              />
+                type="button"
+                onClick={() => setViewerIndex(i)}
+                aria-label={`View photo ${i + 1}`}
+                className="h-[38px] w-[38px] shrink-0 rounded-lg border-none p-0"
+              >
+                <img
+                  src={frame.src}
+                  className="h-full w-full rounded-lg border border-white/15 object-cover"
+                />
+              </button>
             ))}
           </div>
 
@@ -610,6 +651,65 @@ export function CaptureScreen({
             </button>
           </div>
         </div>
+        {viewerIndex != null && frames[viewerIndex] && (
+          <div className="absolute inset-0 z-7 flex flex-col bg-black/95 backdrop-blur-sm">
+            <div className="flex items-center justify-between px-4 pt-[calc(var(--safe-top)+14px)] pb-3">
+              <div className="rounded-full bg-black/40 px-2.5 py-1.5 font-mono text-sm backdrop-blur-md">
+                {viewerIndex + 1} / {frames.length}
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewerIndex(null)}
+                aria-label="Close preview"
+                className="flex h-8.5 w-8.5 items-center justify-center rounded-full border-none bg-black/40 text-base text-text backdrop-blur-md"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="relative flex-1 overflow-hidden">
+              <img
+                src={frames[viewerIndex].src}
+                className="absolute inset-0 h-full w-full object-contain"
+              />
+
+              {viewerIndex > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setViewerIndex((i) => (i != null ? i - 1 : i))
+                  }
+                  aria-label="Previous photo"
+                  className="absolute top-1/2 left-2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border-none bg-black/40 text-xl text-text backdrop-blur-md"
+                >
+                  ‹
+                </button>
+              )}
+              {viewerIndex < frames.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setViewerIndex((i) => (i != null ? i + 1 : i))
+                  }
+                  aria-label="Next photo"
+                  className="absolute top-1/2 right-2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border-none bg-black/40 text-xl text-text backdrop-blur-md"
+                >
+                  ›
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-center px-4 pt-3 pb-[calc(var(--safe-bottom)+22px)]">
+              <button
+                type="button"
+                onClick={handleRemoveViewedFrame}
+                className="rounded-2xl border-none bg-white/10 px-5.5 py-3.5 font-display text-[15px] font-bold text-text"
+              >
+                Remove this photo
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
