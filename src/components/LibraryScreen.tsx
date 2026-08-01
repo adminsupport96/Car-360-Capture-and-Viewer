@@ -6,12 +6,15 @@ import {
   type SavedZip,
 } from "../lib/localLibrary";
 import { saveBlobToDrive } from "../lib/googleDrive";
+import { downloadBlob } from "../lib/saveFrames";
+import { isIOS, isStandalone } from "../lib/platform";
 
 interface LibraryScreenProps {
   onBack: () => void;
 }
 
 type UploadState = "idle" | "uploading" | "uploaded" | "error";
+type DownloadState = "idle" | "saving" | "error";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -32,10 +35,27 @@ export function LibraryScreen({ onBack }: LibraryScreenProps) {
   const [uploadState, setUploadState] = useState<
     Record<string, UploadState>
   >({});
+  const [downloadState, setDownloadState] = useState<
+    Record<string, DownloadState>
+  >({});
 
   useEffect(() => {
     listSavedZips().then(setItems);
   }, []);
+
+  async function handleSaveLocal(item: SavedZip) {
+    if (downloadState[item.id] === "saving") return;
+    setDownloadState((s) => ({ ...s, [item.id]: "saving" }));
+    try {
+      const blob = await getSavedZipBlob(item.id);
+      if (!blob) throw new Error("File no longer available");
+      downloadBlob(blob, item.filename);
+      setDownloadState((s) => ({ ...s, [item.id]: "idle" }));
+    } catch (err) {
+      console.error("Save to local failed:", err);
+      setDownloadState((s) => ({ ...s, [item.id]: "error" }));
+    }
+  }
 
   async function handleUpload(item: SavedZip) {
     if (uploadState[item.id] === "uploading") return;
@@ -55,6 +75,7 @@ export function LibraryScreen({ onBack }: LibraryScreenProps) {
     if (!confirm(`Delete ${item.filename}?`)) return;
     await deleteSavedZip(item.id);
     setUploadState(({ [item.id]: _removed, ...rest }) => rest);
+    setDownloadState(({ [item.id]: _removed, ...rest }) => rest);
     setItems((prev) => prev?.filter((i) => i.id !== item.id) ?? prev);
   }
 
@@ -71,6 +92,15 @@ export function LibraryScreen({ onBack }: LibraryScreenProps) {
         </button>
       </div>
 
+      {isIOS() && !isStandalone() && (
+        <div className="mb-4 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 font-mono text-xs leading-snug text-text-dim">
+          <span className="text-accent">Tip:</span> Safari can clear
+          locally saved files after 7 days of inactivity. Add this app to
+          your Home Screen (Share → Add to Home Screen) so saved spins
+          stick around reliably.
+        </div>
+      )}
+
       {items == null && (
         <div className="py-10 text-center font-mono text-sm text-text-dim">
           Loading…
@@ -86,6 +116,7 @@ export function LibraryScreen({ onBack }: LibraryScreenProps) {
       <div className="flex flex-col gap-3">
         {items?.map((item) => {
           const state = uploadState[item.id] ?? "idle";
+          const dlState = downloadState[item.id] ?? "idle";
           return (
             <div
               key={item.id}
@@ -114,6 +145,18 @@ export function LibraryScreen({ onBack }: LibraryScreenProps) {
                       : state === "error"
                         ? "upload failed — retry"
                         : "upload to drive"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveLocal(item)}
+                  disabled={dlState === "saving"}
+                  className="flex-1 rounded-full border border-bg-elevated-2 bg-transparent py-2 font-mono text-xs text-text disabled:opacity-50"
+                >
+                  {dlState === "saving"
+                    ? "saving…"
+                    : dlState === "error"
+                      ? "save failed — retry"
+                      : "save to local"}
                 </button>
                 <button
                   type="button"

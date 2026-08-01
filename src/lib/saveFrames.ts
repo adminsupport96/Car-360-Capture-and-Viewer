@@ -25,6 +25,17 @@ export async function buildFramesZip(
   return zip.generateAsync({ type: "blob" });
 }
 
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function saveAllFrames(
   frames: Frame[],
   unitName: string,
@@ -32,12 +43,5 @@ export async function saveAllFrames(
 ) {
   const baseName = baseFileName(unitName, modeLabel);
   const blob = await buildFramesZip(frames, baseName);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${baseName}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `${baseName}.zip`);
 }
