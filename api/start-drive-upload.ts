@@ -1,9 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// Default Vercel Node function timeout (10s) can be too short for a phone on
-// a weak connection — the client's own upload of the zip counts against it.
+// This endpoint only exchanges credentials for a short-lived Google Drive
+// "resumable upload" session URL — it never sees the actual file bytes, so
+// it isn't subject to Vercel's request body size limit. The browser then
+// PUTs the file directly to the returned Google URL (see src/lib/googleDrive.ts).
 export const config = {
-  maxDuration: 60,
+  maxDuration: 30,
 };
 
 async function getAccessToken(
@@ -31,47 +33,36 @@ async function getAccessToken(
   return data.access_token;
 }
 
-async function uploadToDrive(
-  buffer: Buffer,
+async function startResumableSession(
   filename: string,
   folderId: string,
   accessToken: string,
 ): Promise<string> {
-  const boundary = `car360-${Date.now()}`;
   const metadata = { name: filename, parents: [folderId] };
 
-  const multipartBody = Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\n` +
-        `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-        `${JSON.stringify(metadata)}\r\n` +
-        `--${boundary}\r\n` +
-        `Content-Type: application/zip\r\n\r\n`,
-      "utf-8",
-    ),
-    buffer,
-    Buffer.from(`\r\n--${boundary}--`, "utf-8"),
-  ]);
-
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id",
     {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": "application/zip",
       },
-      body: multipartBody,
+      body: JSON.stringify(metadata),
     },
   );
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Drive upload failed (${res.status}): ${body}`);
+    throw new Error(`Starting Drive upload session failed (${res.status}): ${body}`);
   }
 
-  const data = (await res.json()) as { id: string };
-  return data.id;
+  const uploadUrl = res.headers.get("location");
+  if (!uploadUrl) {
+    throw new Error("Drive did not return a resumable upload URL.");
+  }
+  return uploadUrl;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -97,19 +88,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const body = req.body as Buffer | undefined;
-  if (!body || !body.length) {
-    res.status(400).json({ error: "Empty upload body." });
+  const { filename } = (req.body ?? {}) as { filename?: string };
+  if (!filename) {
+    res.status(400).json({ error: "Missing filename." });
     return;
   }
-
-  const filenameHeader = req.headers["x-file-name"];
-  const rawFilename = Array.isArray(filenameHeader)
-    ? filenameHeader[0]
-    : filenameHeader;
-  const filename = rawFilename
-    ? decodeURIComponent(rawFilename)
-    : "capture.zip";
 
   try {
     const accessToken = await getAccessToken(
@@ -117,15 +100,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       GOOGLE_CLIENT_SECRET,
       GOOGLE_REFRESH_TOKEN,
     );
-    const fileId = await uploadToDrive(
-      body,
+    const uploadUrl = await startResumableSession(
       filename,
       GOOGLE_DRIVE_FOLDER_ID,
       accessToken,
     );
-    res.status(200).json({ id: fileId });
+    res.status(200).json({ uploadUrl });
   } catch (err) {
-    console.error("Drive upload error:", err);
+    console.error("Drive upload session error:", err);
     res.status(502).json({ error: (err as Error).message });
   }
 }
