@@ -9,7 +9,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>("intro");
   const [unitName, setUnitName] = useState("");
   const [mode, setMode] = useState<Mode>("exterior");
-  const [targetCount, setTargetCount] = useState(24);
+  const [targetCount, setTargetCount] = useState(0);
   const [frames, setFrames] = useState<Frame[]>([]);
 
   function startCapture() {
@@ -26,7 +26,10 @@ function App() {
   }
 
   function handleCloseCapture() {
-    if (frames.length && !confirm("Discard captured frames and go back?")) {
+    if (
+      frames.length &&
+      !confirm("Discard captured frames and go back?")
+    ) {
       return;
     }
     setScreen("intro");

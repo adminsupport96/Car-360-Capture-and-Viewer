@@ -27,7 +27,7 @@ export function IntroScreen({
   onStart,
   onOpenLibrary,
 }: IntroScreenProps) {
-  const canStart = unitName.trim().length > 0;
+  const canStart = unitName.trim().length > 0 && targetCount > 0;
 
   return (
     <div className="flex h-full flex-col justify-between overflow-y-auto pt-[calc(var(--safe-top)+32px)] pr-7 pb-[calc(var(--safe-bottom)+28px)] pl-7 [-webkit-overflow-scrolling:touch] bg-bg">
