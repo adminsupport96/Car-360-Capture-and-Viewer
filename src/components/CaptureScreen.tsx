@@ -3,23 +3,10 @@ import { MODES, getHintForProgress } from "../modes";
 import type { Frame, Mode } from "../types";
 import { useCamera } from "../hooks/useCamera";
 import { useFullscreen } from "../hooks/useFullscreen";
-import {
-  useDeviceOrientation,
-  type Tilt,
-} from "../hooks/useDeviceOrientation";
 import { drawToDataUrl } from "../lib/imageCapture";
-import {
-  HEADING_SMOOTHING_ALPHA,
-  LEVEL_TOLERANCE_DEG,
-  ORBIT_READY_FRACTION,
-  TILT_SMOOTHING_ALPHA,
-  shortestDelta,
-  smoothAngle,
-} from "../lib/heading";
 import { ExteriorGuide } from "./guides/ExteriorGuide";
 import { InteriorGuide } from "./guides/InteriorGuide";
 import { StepRing } from "./guides/StepRing";
-import { AxisGauge } from "./guides/AxisGauge";
 
 const RING_LEN = 289;
 
@@ -27,11 +14,7 @@ interface CaptureScreenProps {
   mode: Mode;
   frames: Frame[];
   targetCount: number;
-  onCapture: (
-    src: string,
-    tilt: Tilt | null,
-    heading: number | null,
-  ) => void;
+  onCapture: (src: string) => void;
   onUndo: () => void;
   onClose: () => void;
   onDone: () => void;
@@ -57,71 +40,12 @@ export function CaptureScreen({
     isFullscreen,
     toggle: toggleFullscreen,
   } = useFullscreen();
-  const {
-    tilt,
-    heading,
-    supported: tiltSupported,
-    needsPermission,
-    permission,
-    requestPermission,
-  } = useDeviceOrientation(true);
-  // The level guide is informational only — it never blocks the shutter.
-  // This just controls whether the guide UI is shown at all.
-  const [showGuide, setShowGuide] = useState(true);
-  const [baseTilt, setBaseTilt] = useState<Tilt | null>(null);
-  const [smoothedTilt, setSmoothedTilt] = useState<Tilt | null>(null);
-  const [smoothedHeading, setSmoothedHeading] = useState<
-    number | null
-  >(null);
-  const [motionTimedOut, setMotionTimedOut] = useState(false);
-  const [motionPromptSkipped, setMotionPromptSkipped] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const el = thumbstripRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
   }, [frames.length]);
-
-  // Undoing back down to zero frames should also clear the tilt baseline —
-  // otherwise the next shot would silently reuse the old starting tilt
-  // instead of establishing a fresh one, even though every image is gone.
-  useEffect(() => {
-    if (frames.length === 0) {
-      setBaseTilt(null);
-    }
-  }, [frames.length]);
-
-  // Raw sensor readings are noisy, so smooth them with a circular EMA before
-  // using them for anything — otherwise alignment feels "super sensitive"
-  // and jittery.
-  useEffect(() => {
-    if (tilt == null) return;
-    setSmoothedTilt((prev) =>
-      prev == null
-        ? tilt
-        : {
-            beta: smoothAngle(
-              prev.beta,
-              tilt.beta,
-              TILT_SMOOTHING_ALPHA,
-            ),
-            gamma: smoothAngle(
-              prev.gamma,
-              tilt.gamma,
-              TILT_SMOOTHING_ALPHA,
-            ),
-          },
-    );
-  }, [tilt]);
-
-  useEffect(() => {
-    if (heading == null) return;
-    setSmoothedHeading((prev) =>
-      prev == null
-        ? heading
-        : smoothAngle(prev, heading, HEADING_SMOOTHING_ALPHA),
-    );
-  }, [heading]);
 
   // Lets you flip through shots taken so far to check framing/focus before
   // the orbit is even complete, rather than waiting for the full viewer.
@@ -142,24 +66,6 @@ export function CaptureScreen({
     return () => window.removeEventListener("keydown", handleKey);
   }, [viewerIndex, frames.length]);
 
-  function calibrateStart() {
-    if (smoothedTilt != null) setBaseTilt(smoothedTilt);
-  }
-
-  // The first frame you capture defines "level" — whatever tilt you're at
-  // when you tap the shutter becomes the baseline everything else is
-  // measured against, rather than wherever the sensor happened to settle
-  // when the camera opened.
-  function captureBaselineIfFirstFrame() {
-    if (frames.length !== 0) return;
-    if (smoothedTilt != null && baseTilt == null)
-      setBaseTilt(smoothedTilt);
-  }
-
-  async function handleEnableMotion() {
-    await requestPermission();
-  }
-
   function handleShutter() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -171,8 +77,7 @@ export function CaptureScreen({
       video.videoHeight,
     );
     if (!dataUrl) return;
-    captureBaselineIfFirstFrame();
-    onCapture(dataUrl, smoothedTilt, smoothedHeading);
+    onCapture(dataUrl);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -191,8 +96,7 @@ export function CaptureScreen({
           img.height,
         );
         if (!dataUrl) return;
-        captureBaselineIfFirstFrame();
-        onCapture(dataUrl, smoothedTilt, smoothedHeading);
+        onCapture(dataUrl);
       };
       img.src = ev.target?.result as string;
     };
@@ -205,66 +109,7 @@ export function CaptureScreen({
   const undoDisabled = frames.length === 0;
   const doneReady = frames.length >= targetCount;
 
-  const tiltActive =
-    tiltSupported && (!needsPermission || permission === "granted");
-
-  // On some iOS versions, `DeviceOrientationEvent.requestPermission` isn't
-  // exposed at all when the device-wide Settings > Safari > Motion &
-  // Orientation Access toggle is off — our permission model then wrongly
-  // treats access as already granted, and events simply never arrive, with
-  // no error to react to. Surface a hint after a few seconds of silence
-  // rather than leaving "Waiting for motion sensor…" up forever.
-  useEffect(() => {
-    if (!tiltActive || smoothedTilt != null) {
-      setMotionTimedOut(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setMotionTimedOut(true), 4000);
-    return () => window.clearTimeout(timer);
-  }, [tiltActive, smoothedTilt]);
-
-  // Orbit progress: how far the phone has turned since the *previous* shot,
-  // as a fraction of the ideal per-shot angle — not an absolute compass
-  // reading, which would drift near the car's steel body (and, for interior
-  // shots, the cabin's own electronics/speaker magnets). Applies to both
-  // modes: exterior is walking a circle while facing the car, interior is
-  // rotating the phone in place — either way it's the same yaw rotation.
-  const orbitStep = 360 / targetCount;
-  const lastCaptureHeading =
-    frames.length > 0 ? frames[frames.length - 1].heading : null;
-  const headingActive = tiltActive && smoothedHeading != null;
-  const orbitDelta =
-    headingActive && lastCaptureHeading != null
-      ? shortestDelta(lastCaptureHeading, smoothedHeading)
-      : null;
-  const orbitProgress =
-    orbitDelta != null ? Math.abs(orbitDelta) / orbitStep : null;
-  const orbitReady =
-    orbitProgress != null && orbitProgress >= ORBIT_READY_FRACTION;
-
-  const orbitHint =
-    headingActive && frames.length > 0 && frames.length < targetCount
-      ? orbitReady
-        ? "Aligned — tap to capture"
-        : `${Math.max(1, Math.round(orbitStep - Math.abs(orbitDelta ?? 0)))}° more — keep moving`
-      : null;
-  const hint =
-    orbitHint ?? getHintForProgress(mode, frames.length, targetCount);
-
-  const tiltDelta =
-    baseTilt != null && smoothedTilt != null
-      ? {
-          beta: shortestDelta(baseTilt.beta, smoothedTilt.beta),
-          gamma: shortestDelta(baseTilt.gamma, smoothedTilt.gamma),
-        }
-      : null;
-  const xAligned =
-    tiltDelta == null ||
-    Math.abs(tiltDelta.gamma) <= LEVEL_TOLERANCE_DEG;
-  const yAligned =
-    tiltDelta == null ||
-    Math.abs(tiltDelta.beta) <= LEVEL_TOLERANCE_DEG;
-  const levelAligned = xAligned && yAligned;
+  const hint = getHintForProgress(mode, frames.length, targetCount);
 
   const videoStyle: React.CSSProperties = {
     position: "absolute",
@@ -322,33 +167,6 @@ export function CaptureScreen({
           </div>
         )}
 
-        {!showFallback &&
-          needsPermission &&
-          permission === "unknown" &&
-          !motionPromptSkipped && (
-            <div className="absolute inset-0 z-6 flex flex-col items-center justify-center gap-4 bg-bg/95 p-8 text-center backdrop-blur-sm">
-              <p className="max-w-[30ch] text-sm leading-normal text-text-dim">
-                This app uses your phone's motion sensors to show a level
-                guide while you shoot. iOS asks for this every time you
-                open the camera.
-              </p>
-              <button
-                type="button"
-                onClick={handleEnableMotion}
-                className="rounded-2xl border-none bg-accent px-5.5 py-3.5 font-display text-[15px] font-bold text-accent-ink"
-              >
-                Enable motion sensors
-              </button>
-              <button
-                type="button"
-                onClick={() => setMotionPromptSkipped(true)}
-                className="bg-transparent border-none font-mono text-xs text-text-dim underline"
-              >
-                Skip for now
-              </button>
-            </div>
-          )}
-
         <div className="absolute inset-x-0 top-0 z-5 flex items-start justify-between bg-linear-to-b from-black/55 to-transparent pt-[calc(var(--safe-top)+14px)] px-4 pb-10">
           <div className="flex items-center gap-2">
             <div className="rounded-full bg-black/40 px-2.5 py-1.5 font-mono text-sm backdrop-blur-md">
@@ -359,19 +177,6 @@ export function CaptureScreen({
               <div className="rounded-full bg-black/40 px-2.5 py-1.5 font-mono text-[11px] text-text-dim backdrop-blur-md">
                 {resolution.width}×{resolution.height}
               </div>
-            )}
-            {tiltSupported && (
-              <button
-                type="button"
-                onClick={() => setShowGuide((v) => !v)}
-                className={`pointer-events-auto rounded-full border px-2.5 py-1.5 font-mono text-xs backdrop-blur-md ${
-                  showGuide
-                    ? "border-accent bg-accent/20 text-accent"
-                    : "border-white/20 bg-black/40 text-text-dim"
-                }`}
-              >
-                Guide {showGuide ? "on" : "off"}
-              </button>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -415,111 +220,10 @@ export function CaptureScreen({
             Step-count progress ring: one dot per frame still to shoot, laid
             out by capture count alone, so the positions themselves can't
             drift or jitter regardless of magnetic interference from the car.
-            The live arc between dots (when heading tracking is active) is
-            the only sensor-driven part — a relative reading since the last
-            shot, not an absolute compass bearing.
           */}
           <div className="pointer-events-auto h-16 w-16 shrink-0">
-            <StepRing
-              targetCount={targetCount}
-              captured={frames.length}
-              nextProgress={
-                headingActive ? (orbitProgress ?? 0) : undefined
-              }
-            />
+            <StepRing targetCount={targetCount} captured={frames.length} />
           </div>
-
-          {tiltSupported && showGuide && (
-            <>
-              {needsPermission && permission === "unknown" && (
-                <button
-                  type="button"
-                  onClick={requestPermission}
-                  className="pointer-events-auto rounded-full border border-white/20 bg-black/50 px-3.5 py-2 font-mono text-xs whitespace-nowrap text-text backdrop-blur-md landscape:whitespace-normal landscape:text-center"
-                >
-                  Enable level guide
-                </button>
-              )}
-
-              {permission === "denied" && (
-                <div className="pointer-events-auto max-w-[26ch] rounded-2xl bg-black/50 px-3 py-2 text-center font-mono text-[11px] leading-snug whitespace-normal text-text-dim backdrop-blur-md">
-                  Motion access is off, so the level guide can't run.
-                  iOS: Settings → Safari → Motion &amp; Orientation
-                  Access. Android: Site settings → Motion sensors.
-                  <button
-                    type="button"
-                    onClick={() => setShowGuide(false)}
-                    className="mt-1 block w-full underline"
-                  >
-                    dismiss
-                  </button>
-                </div>
-              )}
-
-              {tiltActive && smoothedTilt == null && !motionTimedOut && (
-                <div className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
-                  Waiting for motion sensor…
-                </div>
-              )}
-
-              {tiltActive && smoothedTilt == null && motionTimedOut && (
-                <div className="pointer-events-auto max-w-[26ch] rounded-2xl bg-black/50 px-3 py-2 text-center font-mono text-[11px] leading-snug whitespace-normal text-text-dim backdrop-blur-md">
-                  No motion data yet. On iPhone, check Settings → Safari →
-                  Motion &amp; Orientation Access is on, then reload.
-                  <button
-                    type="button"
-                    onClick={() => setShowGuide(false)}
-                    className="mt-1 block w-full underline"
-                  >
-                    dismiss
-                  </button>
-                </div>
-              )}
-
-              {tiltActive &&
-                smoothedTilt != null &&
-                baseTilt == null && (
-                  <div className="hidden pointer-events-auto rounded-full bg-black/50 px-3 py-1 font-mono text-xs whitespace-nowrap text-text-dim backdrop-blur-md landscape:whitespace-normal landscape:text-center">
-                    Tap capture to set your starting level
-                  </div>
-                )}
-
-              {tiltActive && tiltDelta != null && (
-                <>
-                  <div className=" pointer-events-auto rounded-xl bg-black/50 px-2.5 py-2 backdrop-blur-md">
-                    <AxisGauge
-                      label="X"
-                      delta={tiltDelta.gamma}
-                      aligned={xAligned}
-                    />
-                    <AxisGauge
-                      label="Y"
-                      delta={tiltDelta.beta}
-                      aligned={yAligned}
-                    />
-                  </div>
-                  <div
-                    className={`pointer-events-auto rounded-full px-3 py-1 font-mono text-xs whitespace-nowrap backdrop-blur-md landscape:whitespace-normal landscape:text-center ${
-                      levelAligned
-                        ? "bg-accent/20 text-accent"
-                        : "bg-black/50 text-text"
-                    }`}
-                  >
-                    {levelAligned
-                      ? "Aligned — tap to capture"
-                      : "Match your starting tilt"}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={calibrateStart}
-                    className="pointer-events-auto font-mono text-[11px] text-text-dim underline"
-                  >
-                    calibrate start here
-                  </button>
-                </>
-              )}
-            </>
-          )}
         </div>
 
         {/*
@@ -537,11 +241,7 @@ export function CaptureScreen({
             landscape:bg-linear-to-l
             landscape:px-0 landscape:py-5 landscape:pr-[calc(var(--safe-right)+18px)] landscape:pb-0"
         >
-          <div
-            className={`w-full rounded-full px-4 py-2 text-center text-sm whitespace-nowrap backdrop-blur-md transition-opacity landscape:hidden ${
-              orbitReady ? "bg-accent/20 text-accent" : "bg-black/50 text-text"
-            }`}
-          >
+          <div className="w-full rounded-full bg-black/50 px-4 py-2 text-center text-sm whitespace-nowrap text-text backdrop-blur-md landscape:hidden">
             {hint}
           </div>
 

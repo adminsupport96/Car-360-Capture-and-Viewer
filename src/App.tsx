@@ -17,12 +17,8 @@ function App() {
     setScreen("capture");
   }
 
-  function handleCapture(
-    src: string,
-    tilt: { beta: number; gamma: number } | null,
-    heading: number | null,
-  ) {
-    setFrames((prev) => [...prev, { src, tilt, heading }]);
+  function handleCapture(src: string) {
+    setFrames((prev) => [...prev, { src }]);
   }
 
   function handleUndo() {
