@@ -67,6 +67,7 @@ export function CaptureScreen({
   }, [viewerIndex, frames.length]);
 
   function handleShutter() {
+    if (frames.length >= targetCount) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.srcObject) return;
@@ -83,6 +84,10 @@ export function CaptureScreen({
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (frames.length >= targetCount) {
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
@@ -300,7 +305,8 @@ export function CaptureScreen({
                 type="button"
                 aria-label="Capture"
                 onClick={handleShutter}
-                className="absolute inset-[9px] rounded-full border-[3px] border-black bg-text active:bg-accent"
+                disabled={doneReady}
+                className="absolute inset-[9px] rounded-full border-[3px] border-black bg-text active:bg-accent disabled:opacity-30"
               />
             </div>
 
