@@ -2,7 +2,7 @@ import type { Mode, ModeCopy } from "./types";
 
 export const MODES: Record<Mode, ModeCopy> = {
   exterior: {
-    fileLabel: "Orbit",
+    fileLabel: "External",
     fitLabel: "line up the car with the outline",
     hints: [
       "Fit the car inside the guide, then tap to capture",

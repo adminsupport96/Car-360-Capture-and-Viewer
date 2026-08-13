@@ -48,7 +48,7 @@ export function CaptureScreen({
   }, [frames.length]);
 
   // Lets you flip through shots taken so far to check framing/focus before
-  // the orbit is even complete, rather than waiting for the full viewer.
+  // the external capture is even complete, rather than waiting for the full viewer.
   useEffect(() => {
     if (viewerIndex == null) return;
     function handleKey(e: KeyboardEvent) {
